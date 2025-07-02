@@ -5,14 +5,16 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	osClipboard "github.com/atotto/clipboard"
 )
 
 // clipboardFile is the path to the JSON file for persistent storage
 const clipboardFile = "clipboard.json"
 
-// clipboard represents the in-memory storage for key-value pairs
+// clipboardData represents the in-memory storage for key-value pairs
 // Key design decision: Using map for O(1) lookup performance, persisted to JSON
-var clipboard = make(map[string]string)
+var clipboardData = make(map[string]string)
 
 // loadClipboard reads the clipboard data from JSON file
 // If the file doesn't exist, it initializes with an empty clipboard
@@ -29,7 +31,7 @@ func loadClipboard() error {
 	defer file.Close()
 
 	decoder := json.NewDecoder(file)
-	err = decoder.Decode(&clipboard)
+	err = decoder.Decode(&clipboardData)
 	if err != nil {
 		return fmt.Errorf("failed to decode clipboard data: %v", err)
 	}
@@ -48,7 +50,7 @@ func saveClipboard() error {
 
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
-	err = encoder.Encode(clipboard)
+	err = encoder.Encode(clipboardData)
 	if err != nil {
 		return fmt.Errorf("failed to encode clipboard data: %v", err)
 	}
@@ -60,10 +62,13 @@ func saveClipboard() error {
 func printUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  clipboard add <key> <value>     - Store a value with the given key")
-	fmt.Println("  clipboard retrieve <key>        - Retrieve the value associated with the key")
+	fmt.Println("  clipboard retrieve <key>        - Retrieve and display the value")
+	fmt.Println("  clipboard copy <key>            - Retrieve value and copy to OS clipboard")
+	fmt.Println("  clipboard list                  - List all stored keys")
 	fmt.Println("\nExamples:")
 	fmt.Println("  clipboard add mykey \"Hello World\"")
 	fmt.Println("  clipboard retrieve mykey")
+	fmt.Println("  clipboard copy mykey")
 }
 
 // addToClipboard stores a key-value pair in the clipboard and persists to file
@@ -79,7 +84,7 @@ func addToClipboard(key, value string) {
 		return
 	}
 	
-	clipboard[key] = value
+	clipboardData[key] = value
 	
 	// Save to file for persistence
 	if err := saveClipboard(); err != nil {
@@ -93,18 +98,31 @@ func addToClipboard(key, value string) {
 // retrieveFromClipboard gets a value from the clipboard using its key
 // Args:
 //   - key: The identifier for the value to retrieve
+//   - copyToOS: Whether to copy the value to the OS clipboard
 //
 // Returns the stored value or an error message if key doesn't exist
-func retrieveFromClipboard(key string) {
+// Important: Automatically copies retrieved value to OS clipboard for easy pasting
+func retrieveFromClipboard(key string, copyToOS bool) {
 	if key == "" {
 		fmt.Println("Error: Key cannot be empty")
 		return
 	}
 	
-	value, exists := clipboard[key]
+	value, exists := clipboardData[key]
 	if !exists {
 		fmt.Printf("Error: No value found for key '%s'\n", key)
 		return
+	}
+	
+	// Copy to OS clipboard if requested
+	if copyToOS {
+		err := osClipboard.WriteAll(value)
+		if err != nil {
+			fmt.Printf("Warning: Failed to copy to OS clipboard: %v\n", err)
+		} else {
+			fmt.Printf("Copied to OS clipboard: %s\n", value)
+			return
+		}
 	}
 	
 	fmt.Println(value)
@@ -113,13 +131,13 @@ func retrieveFromClipboard(key string) {
 // listAllKeys displays all stored keys in the clipboard
 // Useful for debugging and seeing what's currently stored
 func listAllKeys() {
-	if len(clipboard) == 0 {
+	if len(clipboardData) == 0 {
 		fmt.Println("Clipboard is empty")
 		return
 	}
 	
 	fmt.Println("Stored keys:")
-	for key := range clipboard {
+	for key := range clipboardData {
 		fmt.Printf("  - %s\n", key)
 	}
 }
@@ -162,7 +180,17 @@ func main() {
 		}
 		
 		key := os.Args[2]
-		retrieveFromClipboard(key)
+		retrieveFromClipboard(key, false)
+		
+	case "copy":
+		if len(os.Args) < 3 {
+			fmt.Println("Error: 'copy' command requires a key")
+			fmt.Println("Usage: clipboard copy <key>")
+			os.Exit(1)
+		}
+		
+		key := os.Args[2]
+		retrieveFromClipboard(key, true)
 		
 	case "list":
 		listAllKeys()
